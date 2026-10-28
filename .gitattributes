@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.pine text eol=lf
+*.png binary
+*.jpg binary

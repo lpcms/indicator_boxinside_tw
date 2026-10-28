@@ -1,0 +1,399 @@
+//@version=6
+// BoxInside for TradingView v4 — перенос MT4-индикатора "BoxInside" (box-inside-bar.ex4).
+// Для каждой свечи строится собственный профиль объёма по данным младшего таймфрейма
+// и отмечаются уровни POC (цвет зависит от величины объёма на POC), VAH и VAL.
+// behind_chart = false — метки рисуются поверх свечей, а не под ними.
+indicator("BoxInside [TV]", shorttitle = "BoxInside", overlay = true, max_bars_back = 500, behind_chart = false)
+
+// ════════════════════════════════════ Constants ════════════════════════════════════
+string VA_TOTAL = "OfTotalVolume"
+string VA_ND    = "OfPocND"
+string VT_VOL   = "Volume (Tick/Real)"
+string VT_TPO   = "Without (TPO)"
+string DM_DOTS  = "Dots"
+string DM_CURV  = "Curves"
+string TM_RATIO = "Ratio to average"
+string TM_PCT   = "Percentile"
+string LM_DEPTH = "Auto по BarsLimit"
+string LM_MT4   = "Auto как MT4"
+string LM_MAN   = "Вручную"
+
+// ════════════════════════════════════ Inputs ═══════════════════════════════════════
+string GRP_P = "Профиль"
+float  iValueArea = input.float(70.0, "ValueArea, %", minval = 1, maxval = 100, step = 1, group = GRP_P,
+     tooltip = "Размер зоны стоимости (Value Area) в процентах от объёма профиля свечи.")
+string iVaType    = input.string(VA_TOTAL, "ValueAreaType", options = [VA_TOTAL, VA_ND], group = GRP_P,
+     tooltip = "OfTotalVolume — зона набирается от POC в сторону большего объёма, пока не наберётся ValueArea % объёма.\nOfPocND — нормальное распределение относительно POC: VAH/VAL = POC ± z·σ.")
+string iVolType   = input.string(VT_VOL, "VolumesType", options = [VT_VOL, VT_TPO], group = GRP_P,
+     tooltip = "Volume — объём, который отдаёт поставщик данных (для Forex/CFD это тиковый объём, для бирж — реальный).\nWithout (TPO) — без учёта объёма, каждая младшая свеча считается за 1.")
+int    iRows      = input.int(50, "Rows (строк профиля)", minval = 5, maxval = 500, group = GRP_P,
+     tooltip = "На сколько ценовых строк делится диапазон High–Low каждой свечи. Используется, если 'Ticks per row' = 0.")
+int    iRowTicks  = input.int(0, "Ticks per row (0 = по Rows)", minval = 0, maxval = 100000, group = GRP_P,
+     tooltip = "Фиксированный шаг строки в тиках (как в MT4 — по пунктам). 0 — использовать количество строк Rows.")
+string iLtfMode   = input.string(LM_DEPTH, "LTF", options = [LM_DEPTH, LM_MT4, LM_MAN], inline = "ltf", group = GRP_P)
+string iLtf       = input.timeframe("1", "", inline = "ltf", group = GRP_P,
+     tooltip = "Младший таймфрейм для расчёта профиля.\n" +
+     "Auto по BarsLimit — самый мелкий ТФ, при котором данных младшего ТФ хватает на все BarsLimit свечей (с учётом лимита тарифа ниже).\n" +
+     "Auto как MT4 — M1 для M5–H1, M5 для H4, M30 для D1, H4 для W1, D1 для MN.\n" +
+     "Вручную — ТФ справа.")
+int    iBarsLimit = input.int(1000, "BarsLimit", minval = 10, maxval = 20000, group = GRP_P,
+     tooltip = "Для скольких последних свечей строить профиль.")
+int    iIntraCap  = input.int(100000, "Лимит младших баров тарифа", options = [100000, 125000, 200000], group = GRP_P,
+     tooltip = "Сколько свечей младшего ТФ TradingView отдаёт индикатору: 100 000 (Basic…Premium), 125 000 (Expert), 200 000 (Ultimate).\nПрофиль строится только там, где есть данные младшего ТФ.")
+
+string GRP_D = "Отображение"
+string iMode         = input.string(DM_DOTS, "DrawingMode", options = [DM_DOTS, DM_CURV], group = GRP_D,
+     tooltip = "Dots — метки POC/VAH/VAL на каждой свече.\nCurves — кривые, соединяющие уровни соседних свечей.")
+bool   iShowVah      = input.bool(true, "", inline = "vah", group = GRP_D)
+color  iVahColor     = input.color(color.gray, "VAHColor", inline = "vah", group = GRP_D)
+bool   iShowVal      = input.bool(true, "", inline = "val", group = GRP_D)
+color  iValColor     = input.color(color.gray, "VALColor", inline = "val", group = GRP_D,
+     tooltip = "Галочка слева включает/выключает метки (или линию) уровня на графике.")
+int    iDotWidth     = input.int(4, "Размер точки POC", minval = 1, maxval = 10, group = GRP_D)
+string iVaSize       = input.string("Tiny", "Размер меток VAH/VAL (Dots)", options = ["Tiny", "Small", "Normal", "Large"], group = GRP_D,
+     tooltip = "Размер ромбов VAH/VAL в режиме Dots.")
+int    iVaLineWidth  = input.int(1, "Толщина линий VAH/VAL (Curves)", minval = 1, maxval = 10, group = GRP_D)
+color  iPocCurveCol  = input.color(color.purple, "Цвет кривой POC (Curves)", group = GRP_D)
+bool   iPocCurveTier = input.bool(false, "Красить кривую POC по объёму", group = GRP_D)
+int    iMarkTransp   = input.int(0, "Прозрачность меток, %", minval = 0, maxval = 90, step = 10, group = GRP_D,
+     tooltip = "Метки рисуются поверх свечей. Если они закрывают свечи — добавьте прозрачность.")
+
+string GRP_C = "Цвета POC по объёму"
+// Галочка слева от цвета показывает/скрывает свечи этой градации на графике.
+bool   iShowLowest   = input.bool(true, "", inline = "t0", group = GRP_C)
+color  iLowestColor  = input.color(color.purple,      "LowestBoxColor",  inline = "t0", group = GRP_C)
+bool   iShowLow      = input.bool(true, "", inline = "t1", group = GRP_C)
+color  iLowColor     = input.color(color.red,         "LowBoxColor",     inline = "t1", group = GRP_C)
+bool   iShowMiddle   = input.bool(true, "", inline = "t2", group = GRP_C)
+color  iMiddleColor  = input.color(#FFD700,           "MiddleBoxColor",  inline = "t2", group = GRP_C)
+bool   iShowMedium   = input.bool(true, "", inline = "t3", group = GRP_C)
+color  iMediumColor  = input.color(#32CD32,           "MediumBoxColor",  inline = "t3", group = GRP_C)
+bool   iShowHigh     = input.bool(true, "", inline = "t4", group = GRP_C)
+color  iHighColor    = input.color(#1E90FF,           "HighBoxColor",    inline = "t4", group = GRP_C)
+bool   iShowHighest  = input.bool(true, "", inline = "t5", group = GRP_C)
+color  iHighestColor = input.color(#00E5FF,           "HighestBoxColor", inline = "t5", group = GRP_C,
+     tooltip = "Галочка слева от цвета включает/выключает отображение свечей этой градации объёма.")
+bool   iHideVaWithTier = input.bool(true, "Скрывать и VAH/VAL у выключенных градаций", group = GRP_C,
+     tooltip = "Вкл — у свечи выключенной градации скрываются все метки (POC, VAH, VAL).\nВыкл — скрывается только точка POC.")
+
+string GRP_T = "Градация объёма POC"
+string iTierMode = input.string(TM_RATIO, "Метод", options = [TM_RATIO, TM_PCT], group = GRP_T,
+     tooltip = "Ratio to average — объём POC делится на средний объём POC за Lookback свечей и сравнивается с порогами ниже.\nPercentile — процентильный ранг объёма POC за Lookback свечей, 6 равных групп.")
+int    iLookback = input.int(100, "Lookback", minval = 5, maxval = 2000, group = GRP_T)
+float  iT1 = input.float(0.50, "Порог Lowest → Low",     step = 0.05, group = GRP_T)
+float  iT2 = input.float(0.75, "Порог Low → Middle",     step = 0.05, group = GRP_T)
+float  iT3 = input.float(1.00, "Порог Middle → Medium",  step = 0.05, group = GRP_T)
+float  iT4 = input.float(1.50, "Порог Medium → High",    step = 0.05, group = GRP_T)
+float  iT5 = input.float(2.00, "Порог High → Highest",   step = 0.05, group = GRP_T,
+     tooltip = "Пороги для метода Ratio to average (в долях среднего). Должны идти по возрастанию.")
+
+string GRP_TB = "Таблица"
+bool   iShowTable = input.bool(true, "Показывать таблицу", group = GRP_TB)
+string iTablePos  = input.string("Top Right", "Позиция", options = ["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group = GRP_TB)
+string iTableSize = input.string("Small", "Размер текста", options = ["Tiny", "Small", "Normal"], group = GRP_TB)
+
+// ════════════════════════════════════ Helpers ══════════════════════════════════════
+// Обратная функция стандартного нормального распределения (алгоритм Acklam).
+invNorm(float p) =>
+    float a1 = -3.969683028665376e+01
+    float a2 = 2.209460984245205e+02
+    float a3 = -2.759285104469687e+02
+    float a4 = 1.383577518672690e+02
+    float a5 = -3.066479806614716e+01
+    float a6 = 2.506628277459239e+00
+    float b1 = -5.447609879822406e+01
+    float b2 = 1.615858368580409e+02
+    float b3 = -1.556989798598866e+02
+    float b4 = 6.680131188771972e+01
+    float b5 = -1.328068155288572e+01
+    float c1 = -7.784894002430293e-03
+    float c2 = -3.223964580411365e-01
+    float c3 = -2.400758277161838e+00
+    float c4 = -2.549732539343734e+00
+    float c5 = 4.374664141464968e+00
+    float c6 = 2.938163982698783e+00
+    float d1 = 7.784695709041462e-03
+    float d2 = 3.224671290700398e-01
+    float d3 = 2.445134137142996e+00
+    float d4 = 3.754408661907416e+00
+    float pLow = 0.02425
+    float x = 0.0
+    if p < pLow
+        float q = math.sqrt(-2.0 * math.log(p))
+        x := (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1.0)
+    else if p <= 1.0 - pLow
+        float q = p - 0.5
+        float r = q * q
+        x := (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1.0)
+    else
+        float q = math.sqrt(-2.0 * math.log(1.0 - p))
+        x := -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1.0)
+    x
+
+// z-квантиль для двусторонней зоны ValueArea % (для OfPocND).
+float Z_VA = invNorm(math.min(0.5 + iValueArea / 200.0, 0.99995))
+
+// Профиль одной свечи по массивам младших свечей. Возвращает [POC, VAH, VAL, объём на POC].
+calcProfile(array<float> hs, array<float> ls, array<float> vs, float barHi, float barLo) =>
+    float poc    = na
+    float vah    = na
+    float val    = na
+    float pocVol = na
+    int   n      = hs.size()
+    if n > 0
+        // Если поставщик не даёт объём — автоматически считаем по TPO.
+        float volSum = 0.0
+        for i = 0 to n - 1
+            volSum += nz(vs.get(i))
+        bool tpo = iVolType == VT_TPO or volSum <= 0
+        float rng = barHi - barLo
+        if rng <= 0
+            poc    := barHi
+            vah    := barHi
+            val    := barLo
+            pocVol := tpo ? float(n) : volSum
+        else
+            float step = 0.0
+            int   rows = 0
+            if iRowTicks > 0
+                step := iRowTicks * syminfo.mintick
+                rows := math.floor(rng / step) + 1
+                if rows > 1000
+                    rows := 1000
+                    step := rng / rows
+            else
+                rows := math.max(1, math.min(iRows, math.round(rng / syminfo.mintick)))
+                step := rng / rows
+            array<float> prof = array.new_float(rows, 0.0)
+            for i = 0 to n - 1
+                float h = math.min(hs.get(i), barHi)
+                float l = math.max(ls.get(i), barLo)
+                float v = tpo ? 1.0 : nz(vs.get(i))
+                if h >= l and v > 0
+                    int r0 = math.min(rows - 1, math.max(0, math.floor((l - barLo) / step)))
+                    int r1 = math.min(rows - 1, math.max(0, math.floor((h - barLo) / step)))
+                    float share = v / (r1 - r0 + 1)
+                    for r = r0 to r1
+                        prof.set(r, prof.get(r) + share)
+            float total = prof.sum()
+            if total > 0
+                // POC — строка с максимальным объёмом; при равенстве — ближайшая к центру свечи.
+                int   pocIdx = 0
+                float maxV   = -1.0
+                float center = (rows - 1) / 2.0
+                for r = 0 to rows - 1
+                    float pv = prof.get(r)
+                    if pv > maxV or (pv == maxV and math.abs(r - center) < math.abs(pocIdx - center))
+                        maxV   := pv
+                        pocIdx := r
+                poc    := math.min(barHi, barLo + (pocIdx + 0.5) * step)
+                pocVol := maxV
+                if iVaType == VA_TOTAL
+                    float target = total * iValueArea / 100.0
+                    float acc    = maxV
+                    int   up     = pocIdx
+                    int   dn     = pocIdx
+                    while acc < target and (up < rows - 1 or dn > 0)
+                        float vUp = up < rows - 1 ? prof.get(up + 1) : -1.0
+                        float vDn = dn > 0 ? prof.get(dn - 1) : -1.0
+                        if vUp >= vDn
+                            up  += 1
+                            acc += vUp
+                        else
+                            dn  -= 1
+                            acc += vDn
+                    vah := math.min(barHi, barLo + (up + 1) * step)
+                    val := math.max(barLo, barLo + dn * step)
+                else
+                    float s2 = 0.0
+                    for r = 0 to rows - 1
+                        float d = math.min(barHi, barLo + (r + 0.5) * step) - poc
+                        s2 += prof.get(r) * d * d
+                    float sigma = math.sqrt(s2 / total)
+                    vah := math.min(barHi, poc + Z_VA * sigma)
+                    val := math.max(barLo, poc - Z_VA * sigma)
+    [poc, vah, val, pocVol]
+
+tierColor(int t) =>
+    switch t
+        0 => iLowestColor
+        1 => iLowColor
+        2 => iMiddleColor
+        3 => iMediumColor
+        4 => iHighColor
+        => iHighestColor
+
+tierVisible(int t) =>
+    switch t
+        0 => iShowLowest
+        1 => iShowLow
+        2 => iShowMiddle
+        3 => iShowMedium
+        4 => iShowHigh
+        => iShowHighest
+
+tierName(int t) =>
+    switch t
+        0 => "Lowest"
+        1 => "Low"
+        2 => "Middle"
+        3 => "Medium"
+        4 => "High"
+        => "Highest"
+
+// ════════════════════════════════ Lower timeframe ══════════════════════════════════
+// TradingView отдаёт не больше iIntraCap младших свечей. При M1 на H1 это ≈ 100 000 / 60 ≈ 1 666 свечей графика,
+// поэтому в v3 при BarsLimit > ~2000 старые свечи оставались без профиля.
+// "Auto по BarsLimit" берёт самый мелкий ТФ, у которого (свечей LTF на 1 свечу графика) × BarsLimit влезает в лимит.
+int    chartSec = timeframe.in_seconds()
+string mt4Ltf   = chartSec <= 3600 ? "1" : chartSec <= 14400 ? "5" : chartSec <= 86400 ? "30" : chartSec <= 604800 ? "240" : "1D"
+// Подходит ли младший ТФ: он меньше ТФ графика и его свечей хватает на iBarsLimit свечей графика.
+ltfFits(string tf) =>
+    int sec = timeframe.in_seconds(tf)
+    sec < chartSec and float(chartSec) / sec * iBarsLimit <= iIntraCap * 0.95
+string depthLtf = ltfFits("1") ? "1" : ltfFits("2") ? "2" : ltfFits("3") ? "3" : ltfFits("5") ? "5" : ltfFits("10") ? "10" :
+     ltfFits("15") ? "15" : ltfFits("30") ? "30" : ltfFits("60") ? "60" : ltfFits("120") ? "120" : ltfFits("240") ? "240" :
+     ltfFits("1D") ? "1D" : mt4Ltf
+string ltf = iLtfMode == LM_MAN ? iLtf : iLtfMode == LM_MT4 ? mt4Ltf : depthLtf
+if timeframe.in_seconds(ltf) >= chartSec
+    runtime.error("BoxInside: младший таймфрейм (" + ltf + ") должен быть меньше таймфрейма графика. Для графиков M1–M4 выберите LTF = Вручную и секундный ТФ (например 15S) или используйте график от M5.")
+
+[ltfH, ltfL, ltfV] = request.security_lower_tf(syminfo.tickerid, ltf, [high, low, volume])
+
+// ═════════════════════════════════ Calculation ═════════════════════════════════════
+float poc    = na
+float vah    = na
+float val    = na
+float pocVol = na
+// Покрытие: сколько свечей из BarsLimit реально получили профиль (для предупреждения в таблице).
+var int barsInLimit = 0
+var int barsCovered = 0
+if bar_index > last_bar_index - iBarsLimit
+    [p, h, l, pv] = calcProfile(ltfH, ltfL, ltfV, high, low)
+    poc    := p
+    vah    := h
+    val    := l
+    pocVol := pv
+    barsInLimit += 1
+    barsCovered += na(pv) ? 0 : 1
+
+// Градация объёма POC: сравнение с предыдущими Lookback свечами.
+var array<float> pocHist = array.new_float()
+int   tier    = na
+float tierVal = na
+if not na(pocVol)
+    int cnt = pocHist.size()
+    if iTierMode == TM_RATIO
+        float avgVol = (pocHist.sum() + pocVol) / (cnt + 1)
+        tierVal := avgVol > 0 ? pocVol / avgVol : 1.0
+        tier    := tierVal < iT1 ? 0 : tierVal < iT2 ? 1 : tierVal < iT3 ? 2 : tierVal < iT4 ? 3 : tierVal < iT5 ? 4 : 5
+    else
+        int below = 0
+        for hv in pocHist
+            if hv <= pocVol
+                below += 1
+        tierVal := cnt > 0 ? 100.0 * below / cnt : 50.0
+        tier    := math.min(5, math.floor(tierVal / (100.0 / 6.0)))
+    if barstate.isconfirmed
+        pocHist.push(pocVol)
+        if pocHist.size() > iLookback
+            pocHist.shift()
+
+color pocColor = color.new(na(tier) ? iMiddleColor : tierColor(tier), iMarkTransp)
+color vahMark  = color.new(iVahColor, iMarkTransp)
+color valMark  = color.new(iValColor, iMarkTransp)
+
+// Фильтр отображения по градациям объёма и галочкам VAH/VAL.
+bool  pocVisible  = na(tier) or tierVisible(tier)
+bool  vaVisible   = pocVisible or not iHideVaWithTier
+float pocDraw     = pocVisible ? poc : na
+float vahDraw     = iShowVah and vaVisible ? vah : na
+float valDraw     = iShowVal and vaVisible ? val : na
+
+// ═══════════════════════════════════ Drawing ═══════════════════════════════════════
+bool isDots = iMode == DM_DOTS
+
+// Размер plotshape задаётся только константой, поэтому на каждый размер своя пара меток;
+// видна только та, что выбрана в настройках.
+bool vaTiny   = isDots and iVaSize == "Tiny"
+bool vaSmall  = isDots and iVaSize == "Small"
+bool vaNormal = isDots and iVaSize == "Normal"
+bool vaLarge  = isDots and iVaSize == "Large"
+plotshape(vaTiny   ? vahDraw : na, "VAH", shape.diamond, location.absolute, vahMark, size = size.tiny,   display = vaTiny   ? display.all : display.none)
+plotshape(vaTiny   ? valDraw : na, "VAL", shape.diamond, location.absolute, valMark, size = size.tiny,   display = vaTiny   ? display.all : display.none)
+plotshape(vaSmall  ? vahDraw : na, "VAH (Small)", shape.diamond, location.absolute, vahMark, size = size.small,  display = vaSmall  ? display.all : display.none)
+plotshape(vaSmall  ? valDraw : na, "VAL (Small)", shape.diamond, location.absolute, valMark, size = size.small,  display = vaSmall  ? display.all : display.none)
+plotshape(vaNormal ? vahDraw : na, "VAH (Normal)", shape.diamond, location.absolute, vahMark, size = size.normal, display = vaNormal ? display.all : display.none)
+plotshape(vaNormal ? valDraw : na, "VAL (Normal)", shape.diamond, location.absolute, valMark, size = size.normal, display = vaNormal ? display.all : display.none)
+plotshape(vaLarge  ? vahDraw : na, "VAH (Large)", shape.diamond, location.absolute, vahMark, size = size.large,  display = vaLarge  ? display.all : display.none)
+plotshape(vaLarge  ? valDraw : na, "VAL (Large)", shape.diamond, location.absolute, valMark, size = size.large,  display = vaLarge  ? display.all : display.none)
+
+plot(isDots ? na : vahDraw, "VAH curve", vahMark, iVaLineWidth)
+plot(isDots ? na : valDraw, "VAL curve", valMark, iVaLineWidth)
+color pocCurveColor = iPocCurveTier ? pocColor : color.new(iPocCurveCol, iMarkTransp)
+plot(isDots ? na : pocDraw, "POC curve", pocCurveColor, 2)
+
+plot(pocDraw, "POC", isDots ? pocColor : pocCurveColor, iDotWidth, plot.style_circles)
+plot(pocVol, "POC volume", display = display.data_window)
+
+// ════════════════════════════════════ Table ════════════════════════════════════════
+string tblPos = switch iTablePos
+    "Top Left"     => position.top_left
+    "Bottom Right" => position.bottom_right
+    "Bottom Left"  => position.bottom_left
+    => position.top_right
+string tblSize = switch iTableSize
+    "Tiny"   => size.tiny
+    "Normal" => size.normal
+    => size.small
+rangeText(int t) =>
+    string res = ""
+    if iTierMode == TM_RATIO
+        array<float> th = array.from(iT1, iT2, iT3, iT4, iT5)
+        if t == 0
+            res := "< " + str.tostring(iT1, "0.00") + "×"
+        else if t == 5
+            res := "≥ " + str.tostring(iT5, "0.00") + "×"
+        else
+            res := str.tostring(th.get(t - 1), "0.00") + "–" + str.tostring(th.get(t), "0.00") + "×"
+    else
+        res := str.tostring(math.round(100.0 * t / 6.0)) + "–" + str.tostring(math.round(100.0 * (t + 1) / 6.0)) + " %"
+    res
+
+var table tbl = table.new(tblPos, 3, 12, bgcolor = color.new(chart.bg_color, 10), frame_color = color.new(chart.fg_color, 70),
+     frame_width = 1, border_color = color.new(chart.fg_color, 85), border_width = 1)
+
+if barstate.isfirst
+    tbl.merge_cells(0, 0, 2, 0)
+    tbl.merge_cells(0, 9, 2, 9)
+    tbl.merge_cells(0, 10, 2, 10)
+    tbl.merge_cells(0, 11, 2, 11)
+
+if barstate.islast and iShowTable
+    color fg = chart.fg_color
+    tbl.cell(0, 0, "BoxInside · объём POC", text_color = fg, text_size = tblSize)
+    for i = 0 to 5
+        int   t   = 5 - i
+        bool  on  = tierVisible(t)
+        bool  cur = not na(tier) and tier == t
+        color rowBg = cur ? color.new(tierColor(t), 75) : na
+        color txt   = on ? fg : color.new(fg, 65)
+        // Значок цвета — залитая ячейка: крупнее символа, но не увеличивает высоту строки.
+        tbl.cell(0, i + 1, on ? "" : "✕", width = 1.2, text_color = fg, text_size = tblSize, bgcolor = on ? tierColor(t) : color.new(tierColor(t), 80))
+        tbl.cell(1, i + 1, tierName(t), text_color = txt, text_size = tblSize, text_halign = text.align_left, bgcolor = rowBg)
+        tbl.cell(2, i + 1, (on ? rangeText(t) : "выкл") + (cur ? "  ◄" : ""), text_color = txt, text_size = tblSize, text_halign = text.align_right, bgcolor = rowBg)
+    string vaPct = str.tostring(iValueArea) + " %"
+    tbl.cell(0, 7, iShowVah ? "" : "✕", width = 1.2, text_color = fg, text_size = tblSize, bgcolor = iShowVah ? iVahColor : color.new(iVahColor, 80))
+    tbl.cell(1, 7, "VAH", text_color = iShowVah ? fg : color.new(fg, 65), text_size = tblSize, text_halign = text.align_left)
+    tbl.cell(2, 7, iShowVah ? "верх VA " + vaPct : "выкл", text_color = iShowVah ? fg : color.new(fg, 65), text_size = tblSize, text_halign = text.align_right)
+    tbl.cell(0, 8, iShowVal ? "" : "✕", width = 1.2, text_color = fg, text_size = tblSize, bgcolor = iShowVal ? iValColor : color.new(iValColor, 80))
+    tbl.cell(1, 8, "VAL", text_color = iShowVal ? fg : color.new(fg, 65), text_size = tblSize, text_halign = text.align_left)
+    tbl.cell(2, 8, iShowVal ? "низ VA " + vaPct : "выкл", text_color = iShowVal ? fg : color.new(fg, 65), text_size = tblSize, text_halign = text.align_right)
+    string curTxt = na(pocVol) ? "Текущая: нет данных LTF" :
+         "Текущая: " + str.tostring(pocVol, format.volume) + (iTierMode == TM_RATIO ? "  (" + str.tostring(tierVal, "0.00") + "×)" : "  (" + str.tostring(tierVal, "0") + " %)")
+    tbl.cell(0, 9, curTxt, text_color = fg, text_size = tblSize)
+    tbl.cell(0, 10, "LTF " + ltf + " · VA " + str.tostring(iValueArea) + "% · " + iVaType, text_color = color.new(fg, 40), text_size = tblSize)
+    // Предупреждение, если данных младшего ТФ не хватило на весь BarsLimit.
+    bool lacking = barsCovered < barsInLimit * 0.98
+    tbl.cell(0, 11, lacking ? "⚠ профиль: " + str.tostring(barsCovered) + " из " + str.tostring(barsInLimit) + " свечей — выберите LTF крупнее" :
+         "профиль: " + str.tostring(barsCovered) + " свечей", text_color = lacking ? color.orange : color.new(fg, 40), text_size = tblSize)
