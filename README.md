@@ -71,6 +71,14 @@ built from lower-timeframe data, with the **POC** drawn as a dot coloured by its
 
 ## 🎯 What It Shows
 
+<img src="docs/anatomy.png" alt="Anatomy of one candle: lower-timeframe bars inside a candle, the candle's volume profile with the POC row and the 70 % value area, and the resulting POC dot and VAH/VAL diamonds on the chart" width="100%">
+
+One candle hides a whole session of trading. BoxInside takes the lower-timeframe bars inside it
+**(1)**, stacks their volume by price into a profile **(2)** and keeps three prices from that
+profile **(3)**: where most volume traded (**POC**) and the borders of the zone holding 70 % of the
+volume (**VAH** and **VAL**). The candle's shape tells you where price went — the marks tell you
+where the market actually did business.
+
 | Mark                      | Meaning                                                                                  |
 | ------------------------- | ---------------------------------------------------------------------------------------- |
 | 🔵 **Coloured dot**       | **POC** (Point of Control) — the price with the largest volume inside the candle         |
@@ -301,6 +309,7 @@ The table (top right by default) shows the current state of the indicator:
 indicator_boxinside_tw/
 ├── BoxInside_v4.pine     # the indicator — paste into TradingView Pine Editor
 ├── docs/
+│   ├── anatomy.png       # candle anatomy diagram: POC · VAH · VAL (anatomy.ru.png — Russian)
 │   ├── logo.png          # README logo
 │   └── mockup.jpg        # README mockup (EUR/USD, 1D)
 ├── README.md             # this file
