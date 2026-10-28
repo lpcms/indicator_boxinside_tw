@@ -85,12 +85,12 @@
 
 | Цвет | Градация    | Объём POC относительно среднего |
 | :--: | ----------- | :-----------------------------: |
-|  🩵  | **Highest** |            ≥ 2.00×              |
-|  🔵  | **High**    |          1.50 – 2.00×           |
-|  🟢  | **Medium**  |          1.00 – 1.50×           |
-|  🟡  | **Middle**  |          0.75 – 1.00×           |
-|  🔴  | **Low**     |          0.50 – 0.75×           |
-|  🟣  | **Lowest**  |            < 0.50×              |
+|  <img src="docs/tiers/highest.png" width="16" height="16" alt="Highest">  | **Highest** |            ≥ 2.00×              |
+|  <img src="docs/tiers/high.png" width="16" height="16" alt="High">  | **High**    |          1.50 – 2.00×           |
+|  <img src="docs/tiers/medium.png" width="16" height="16" alt="Medium">  | **Medium**  |          1.00 – 1.50×           |
+|  <img src="docs/tiers/middle.png" width="16" height="16" alt="Middle">  | **Middle**  |          0.75 – 1.00×           |
+|  <img src="docs/tiers/low.png" width="16" height="16" alt="Low">  | **Low**     |          0.50 – 0.75×           |
+|  <img src="docs/tiers/lowest.png" width="16" height="16" alt="Lowest">  | **Lowest**  |            < 0.50×              |
 
 > ⚠️ Как и в оригинале, положение и цвет меток на **текущей (незакрытой) свече** окончательны только
 > ближе к её закрытию. На закрытых свечах индикатор не перерисовывается.
