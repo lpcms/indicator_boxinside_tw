@@ -24,20 +24,26 @@ built from lower-timeframe data, with the **POC** drawn as a dot coloured by its
 
 ## 📋 Table of Contents
 
-- [✨ Features](#-features)
-- [🎯 What It Shows](#-what-it-shows)
-- [⚙️ How It Works](#️-how-it-works)
-- [🚀 Installation](#-installation)
-- [🎛️ Settings](#️-settings)
-- [🧭 Lower Timeframe & History Depth](#-lower-timeframe--history-depth)
-- [📊 Legend Table](#-legend-table)
-- [💡 Recommended Presets](#-recommended-presets)
-- [🔄 Differences from the MT4 Version](#-differences-from-the-mt4-version)
-- [🆕 What's New in v4](#-whats-new-in-v4)
-- [🗂️ Project Structure](#️-project-structure)
-- [🚧 Known Limitations](#-known-limitations)
-- [🙏 Credits](#-credits)
-- [📄 License](#-license)
+<table>
+  <tr>
+    <td align="center" width="14%"><a href="#-features">✨<br><b>Features</b></a></td>
+    <td align="center" width="14%"><a href="#-what-it-shows">🎯<br><b>What It Shows</b></a></td>
+    <td align="center" width="14%"><a href="#️-how-it-works">⚙️<br><b>How It Works</b></a></td>
+    <td align="center" width="14%"><a href="#-installation">🚀<br><b>Installation</b></a></td>
+    <td align="center" width="14%"><a href="#️-settings">🎛️<br><b>Settings</b></a></td>
+    <td align="center" width="14%"><a href="#-lower-timeframe--history-depth">🧭<br><b>LTF &amp; Depth</b></a></td>
+    <td align="center" width="14%"><a href="#-legend-table">📊<br><b>Legend Table</b></a></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="#-recommended-presets">💡<br><b>Presets</b></a></td>
+    <td align="center"><a href="#-differences-from-the-mt4-version">🔄<br><b>vs. MT4</b></a></td>
+    <td align="center"><a href="#-whats-new-in-v4">🆕<br><b>What's New</b></a></td>
+    <td align="center"><a href="#️-project-structure">🗂️<br><b>Structure</b></a></td>
+    <td align="center"><a href="#-known-limitations">🚧<br><b>Limitations</b></a></td>
+    <td align="center"><a href="#-credits">🙏<br><b>Credits</b></a></td>
+    <td align="center"><a href="#-license">📄<br><b>License</b></a></td>
+  </tr>
+</table>
 
 ---
 
